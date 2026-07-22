@@ -1,9 +1,9 @@
 const db = require('../db');
 
-const getProducts = async () => {
-  const result = await db.query(
-    `SELECT p.id, p.name, p.description, p.image_url, p.base_price, p.quantity, p.active FROM products p ORDER BY p.id`
-  );
+const getProducts = async ({ activeOnly = false } = {}) => {
+  const sql = `SELECT p.id, p.name, p.description, p.image_url, p.base_price, p.quantity, p.active FROM products p
+    ${activeOnly ? 'WHERE p.active = 1' : ''} ORDER BY p.id`;
+  const result = await db.query(sql);
   return result.rows;
 };
 
@@ -39,4 +39,4 @@ const decrementProductQuantity = async (productId, quantity) => {
   return result.rows[0];
 };
 
-module.exports = { getProducts, getProductById, createProduct, updateProduct };
+module.exports = { getProducts, getProductById, createProduct, updateProduct, decrementProductQuantity };

@@ -4,6 +4,8 @@ const { requireAuth, requireAdmin } = require('../middleware/authMiddleware');
 const { createOrder, createOrderItem, getOrders, getOrdersByBuyer, getOrderItems } = require('../models/orderModel');
 const { getProductById, decrementProductQuantity } = require('../models/productModel');
 const { getOverrideForUserProduct } = require('../models/priceOverrideModel');
+const { findById } = require('../models/userModel');
+const { sendNewOrderEmail } = require('../utils/mailer');
 
 const router = express.Router();
 
@@ -52,6 +54,11 @@ router.post(
       if (io) {
         io.emit('newOrder', { orderId: order.id, buyerId, total });
       }
+
+      const buyer = await findById(buyerId);
+      sendNewOrderEmail({ orderId: order.id, buyerName: buyer?.name, buyerEmail: buyer?.email, total }).catch((err) =>
+        console.error('[mailer] unexpected error sending new order email:', err.message)
+      );
 
       res.status(201).json(order);
     } catch (err) {

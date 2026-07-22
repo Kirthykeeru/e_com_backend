@@ -15,8 +15,8 @@ const createUser = async ({ name, email, passwordHash, role = 'buyer' }) => {
     'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
     [name, email, passwordHash, role]
   );
-  const user = await findByEmail(email);
-  return user;
+  const result = await db.query('SELECT id, name, email, role FROM users WHERE email = ?', [email]);
+  return result.rows[0];
 };
 
 const getUsers = async () => {

@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/', authenticateOptional, async (req, res, next) => {
   try {
-    const products = await getProducts();
+    const products = await getProducts({ activeOnly: true });
 
     if (req.user?.role === 'buyer') {
       const pricedProducts = await Promise.all(
