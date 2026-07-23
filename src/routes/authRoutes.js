@@ -1,77 +1,69 @@
 const express = require('express');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { body, validationResult } = require('express-validator');
-const dotenv = require('dotenv');
-const { findByEmail, createUser } = require('../models/userModel');
+const { body } = require('express-validator');
 
-dotenv.config();
+const userModel = require('../models/userModel');
+const validateRequest = require('../middleware/validateRequest');
+const asyncHandler = require('../utils/asyncHandler');
+const serializeUser = require('../utils/serializeUser');
 
 const router = express.Router();
 
-router.post(
-  '/login',
-  body('email').isEmail(),
-  body('password').isLength({ min: 6 }),
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
-
-      const { email, password } = req.body;
-      const user = await findByEmail(email);
-      if (!user) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-
-      const match = await bcrypt.compare(password, user.password_hash);
-      if (!match) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, {
-        expiresIn: '8h',
-      });
-
-      res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
-    } catch (err) {
-      next(err);
-    }
-  }
-);
+function issueToken(user) {
+  return jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, {
+    expiresIn: '8h',
+  });
+}
 
 router.post(
   '/register',
-  body('name').notEmpty(),
-  body('email').isEmail(),
-  body('password').isLength({ min: 6 }),
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+  [
+    body('name').trim().notEmpty().withMessage('Name is required'),
+    body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  ],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const { name, email, password } = req.body;
 
-      const { name, email, password } = req.body;
-      const existingUser = await findByEmail(email);
-      if (existingUser) {
-        return res.status(400).json({ message: 'Email already registered' });
-      }
-
-      const hash = await bcrypt.hash(password, 10);
-      const newUser = await createUser({ name, email, passwordHash: hash, role: 'buyer' });
-
-      const token = jwt.sign({ id: newUser.id, email: newUser.email, role: newUser.role }, process.env.JWT_SECRET, {
-        expiresIn: '8h',
-      });
-
-      res.status(201).json({ token, user: newUser });
-    } catch (err) {
-      next(err);
+    const existing = userModel.findByEmail(email);
+    if (existing) {
+      return res.status(409).json({ message: 'An account with this email already exists' });
     }
-  }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    // role is always forced to 'buyer' here; only /admin/users can create admin accounts
+    const user = userModel.createUser({ name, email, passwordHash, role: 'buyer' });
+    const token = issueToken(user);
+
+    res.status(201).json({ token, user: serializeUser(user) });
+  })
+);
+
+router.post(
+  '/login',
+  [
+    body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+    body('password').notEmpty().withMessage('Password is required'),
+  ],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const { email, password } = req.body;
+
+    const user = userModel.findByEmail(email);
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    const token = issueToken(user);
+    res.json({ token, user: serializeUser(user) });
+  })
 );
 
 module.exports = router;

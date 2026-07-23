@@ -1,42 +1,49 @@
-const db = require('../db');
+const { get, all, run } = require('../db');
 
-const getProducts = async ({ activeOnly = false } = {}) => {
-  const sql = `SELECT p.id, p.name, p.description, p.image_url, p.base_price, p.quantity, p.active FROM products p
-    ${activeOnly ? 'WHERE p.active = 1' : ''} ORDER BY p.id`;
-  const result = await db.query(sql);
-  return result.rows;
-};
+const COLUMNS = 'id, name, description, image_url, base_price, quantity, active, created_at';
 
-const getProductById = async (id) => {
-  const result = await db.query(
-    'SELECT id, name, description, image_url, base_price, quantity, active FROM products WHERE id = ?',
-    [id]
-  );
-  return result.rows[0];
-};
+function getProducts({ activeOnly = false } = {}) {
+  if (activeOnly) {
+    return all(`SELECT ${COLUMNS} FROM products WHERE active = 1 ORDER BY name ASC`);
+  }
+  return all(`SELECT ${COLUMNS} FROM products ORDER BY name ASC`);
+}
 
-const createProduct = async ({ name, description, imageUrl, basePrice, quantity, active = true }) => {
-  await db.query(
+function getProductById(id) {
+  return get(`SELECT ${COLUMNS} FROM products WHERE id = ?`, [id]);
+}
+
+function createProduct({ name, description, imageUrl, basePrice, quantity, active = 1 }) {
+  const result = run(
     'INSERT INTO products (name, description, image_url, base_price, quantity, active) VALUES (?, ?, ?, ?, ?, ?)',
-    [name, description, imageUrl, basePrice, quantity, active ? 1 : 0]
+    [name, description || '', imageUrl || '', basePrice, quantity, active ? 1 : 0]
   );
-  const result = await db.query('SELECT id, name, description, image_url, base_price, quantity, active FROM products WHERE name = ?', [name]);
-  return result.rows[0];
-};
+  return getProductById(result.lastInsertRowid);
+}
 
-const updateProduct = async (id, fields) => {
-  await db.query(
-    'UPDATE products SET name = ?, description = ?, image_url = ?, base_price = ?, quantity = ?, active = ? WHERE id = ?',
-    [fields.name, fields.description, fields.imageUrl, fields.basePrice, fields.quantity, fields.active ? 1 : 0, id]
+function updateProduct(id, { name, description, imageUrl, basePrice, quantity }) {
+  run(
+    'UPDATE products SET name = ?, description = ?, image_url = ?, base_price = ?, quantity = ? WHERE id = ?',
+    [name, description || '', imageUrl || '', basePrice, quantity, id]
   );
-  const result = await db.query('SELECT id, name, description, image_url, base_price, quantity, active FROM products WHERE id = ?', [id]);
-  return result.rows[0];
-};
+  return getProductById(id);
+}
 
-const decrementProductQuantity = async (productId, quantity) => {
-  await db.query('UPDATE products SET quantity = quantity - ? WHERE id = ?', [quantity, productId]);
-  const result = await db.query('SELECT id, quantity FROM products WHERE id = ?', [productId]);
-  return result.rows[0];
-};
+function setProductActive(id, active) {
+  run('UPDATE products SET active = ? WHERE id = ?', [active ? 1 : 0, id]);
+  return getProductById(id);
+}
 
-module.exports = { getProducts, getProductById, createProduct, updateProduct, decrementProductQuantity };
+function decrementProductQuantity(id, amount) {
+  run('UPDATE products SET quantity = quantity - ? WHERE id = ?', [amount, id]);
+  return getProductById(id);
+}
+
+module.exports = {
+  getProducts,
+  getProductById,
+  createProduct,
+  updateProduct,
+  setProductActive,
+  decrementProductQuantity,
+};

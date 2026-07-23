@@ -1,18 +1,22 @@
 const express = require('express');
-const bcrypt = require('bcrypt');
-const { body, validationResult } = require('express-validator');
+const bcrypt = require('bcryptjs');
+const { body, param } = require('express-validator');
+
+const userModel = require('../models/userModel');
+const productModel = require('../models/productModel');
+const priceOverrideModel = require('../models/priceOverrideModel');
+const auditLogModel = require('../models/auditLogModel');
 const { requireAuth, requireAdmin } = require('../middleware/authMiddleware');
-const { getUsers, createUser, updateUser } = require('../models/userModel');
-const { getPriceOverridesForUser, upsertPriceOverride } = require('../models/priceOverrideModel');
-const { getProducts, createProduct, updateProduct } = require('../models/productModel');
-const { createAuditLog, getAuditLogs } = require('../models/auditLogModel');
+const validateRequest = require('../middleware/validateRequest');
+const asyncHandler = require('../utils/asyncHandler');
+const serializeUser = require('../utils/serializeUser');
 
 const router = express.Router();
 
 router.use(requireAuth, requireAdmin);
 
-const logAction = (req, { action, targetType, targetId, details }) =>
-  createAuditLog({
+function logAction(req, { action, targetType, targetId, details }) {
+  auditLogModel.createAuditLog({
     actorId: req.user.id,
     actorEmail: req.user.email,
     action,
@@ -20,174 +24,206 @@ const logAction = (req, { action, targetType, targetId, details }) =>
     targetId,
     details,
   });
+}
 
-router.get('/users', async (req, res, next) => {
-  try {
-    const users = await getUsers();
-    res.json(users);
-  } catch (err) {
-    next(err);
-  }
-});
+// ---- Users ----
+
+router.get(
+  '/users',
+  asyncHandler(async (req, res) => {
+    res.json(userModel.getUsers());
+  })
+);
 
 router.post(
   '/users',
-  body('name').notEmpty(),
-  body('email').isEmail(),
-  body('password').isLength({ min: 6 }),
-  body('role').isIn(['buyer', 'admin']),
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+  [
+    body('name').trim().notEmpty(),
+    body('email').isEmail().normalizeEmail(),
+    body('password').isLength({ min: 6 }),
+    body('role').isIn(['buyer', 'admin']),
+  ],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const { name, email, password, role } = req.body;
 
-      const { name, email, password, role } = req.body;
-      const user = await createUser({
-        name,
-        email,
-        passwordHash: await bcrypt.hash(password, 10),
-        role,
-      });
-      await logAction(req, { action: 'user.create', targetType: 'user', targetId: user.id, details: { name, email, role } });
-      res.status(201).json(user);
-    } catch (err) {
-      next(err);
+    const existing = userModel.findByEmail(email);
+    if (existing) {
+      return res.status(409).json({ message: 'An account with this email already exists' });
     }
-  }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = userModel.createUser({ name, email, passwordHash, role });
+
+    logAction(req, { action: 'user.create', targetType: 'user', targetId: user.id, details: { name, email, role } });
+
+    res.status(201).json(serializeUser(user));
+  })
 );
 
 router.put(
   '/users/:id',
-  body('name').notEmpty(),
-  body('email').isEmail(),
-  body('role').isIn(['buyer', 'admin']),
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+  [param('id').isInt({ min: 1 }), body('name').trim().notEmpty(), body('email').isEmail().normalizeEmail(), body('role').isIn(['buyer', 'admin'])],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const { name, email, role } = req.body;
+    const existing = userModel.findById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'User not found' });
 
-      const updated = await updateUser(req.params.id, req.body);
-      await logAction(req, { action: 'user.update', targetType: 'user', targetId: Number(req.params.id), details: req.body });
-      res.json(updated);
-    } catch (err) {
-      next(err);
-    }
-  }
+    const user = userModel.updateUser(req.params.id, { name, email, role });
+
+    logAction(req, { action: 'user.update', targetType: 'user', targetId: user.id, details: { name, email, role } });
+
+    res.json(serializeUser(user));
+  })
 );
 
-router.get('/users/:id/price-overrides', async (req, res, next) => {
-  try {
-    const overrides = await getPriceOverridesForUser(req.params.id);
-    res.json(overrides);
-  } catch (err) {
-    next(err);
-  }
-});
+router.put(
+  '/users/:id/password',
+  [param('id').isInt({ min: 1 }), body('password').isLength({ min: 6 })],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const existing = userModel.findById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'User not found' });
 
-router.post(
-  '/price-overrides',
-  body('userId').isInt(),
-  body('productId').isInt(),
-  body('overridePrice').isFloat({ gt: 0 }),
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+    const passwordHash = await bcrypt.hash(req.body.password, 10);
+    userModel.setPassword(req.params.id, passwordHash);
 
-      const override = await upsertPriceOverride(req.body);
-      await logAction(req, {
-        action: 'price_override.set',
-        targetType: 'product',
-        targetId: req.body.productId,
-        details: { userId: req.body.userId, overridePrice: req.body.overridePrice },
-      });
-      res.status(201).json(override);
-    } catch (err) {
-      next(err);
-    }
-  }
+    // Never store the plaintext password in the audit log.
+    logAction(req, { action: 'user.password_reset', targetType: 'user', targetId: Number(req.params.id), details: {} });
+
+    res.json({ message: 'Password updated' });
+  })
 );
 
-router.get('/products', async (req, res, next) => {
-  try {
-    const products = await getProducts({ activeOnly: false });
-    res.json(products);
-  } catch (err) {
-    next(err);
-  }
-});
+// ---- Products ----
+
+router.get(
+  '/products',
+  asyncHandler(async (req, res) => {
+    res.json(productModel.getProducts({ activeOnly: false }));
+  })
+);
 
 router.post(
   '/products',
-  body('name').notEmpty(),
-  body('basePrice').isFloat({ gt: 0 }),
-  body('quantity').isInt({ min: 0 }),
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+  [
+    body('name').trim().notEmpty(),
+    body('basePrice').isFloat({ min: 0 }),
+    body('quantity').isInt({ min: 0 }),
+  ],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const { name, description, imageUrl, basePrice, quantity, active } = req.body;
+    const product = productModel.createProduct({ name, description, imageUrl, basePrice, quantity, active });
 
-      const { name, description, imageUrl, basePrice, quantity, active } = req.body;
-      const product = await createProduct({
-        name,
-        description,
-        imageUrl,
-        basePrice,
-        quantity,
-        active: active !== false,
-      });
-      await logAction(req, { action: 'product.create', targetType: 'product', targetId: product.id, details: req.body });
-      res.status(201).json(product);
-    } catch (err) {
-      next(err);
-    }
-  }
+    logAction(req, { action: 'product.create', targetType: 'product', targetId: product.id, details: { name, basePrice, quantity } });
+
+    res.status(201).json(product);
+  })
 );
 
 router.put(
   '/products/:id',
-  body('name').notEmpty(),
-  body('basePrice').isFloat({ gt: 0 }),
-  body('quantity').isInt({ min: 0 }),
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+  [
+    param('id').isInt({ min: 1 }),
+    body('name').trim().notEmpty(),
+    body('basePrice').isFloat({ min: 0 }),
+    body('quantity').isInt({ min: 0 }),
+  ],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const existing = productModel.getProductById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Product not found' });
 
-      const { name, description, imageUrl, basePrice, quantity, active } = req.body;
-      const product = await updateProduct(req.params.id, {
-        name,
-        description,
-        imageUrl,
-        basePrice,
-        quantity,
-        active: active !== false,
-      });
-      await logAction(req, { action: 'product.update', targetType: 'product', targetId: Number(req.params.id), details: req.body });
-      res.json(product);
-    } catch (err) {
-      next(err);
-    }
-  }
+    const { name, description, imageUrl, basePrice, quantity } = req.body;
+    const product = productModel.updateProduct(req.params.id, { name, description, imageUrl, basePrice, quantity });
+
+    logAction(req, { action: 'product.update', targetType: 'product', targetId: product.id, details: { name, basePrice, quantity } });
+
+    res.json(product);
+  })
 );
 
-router.get('/audit-logs', async (req, res, next) => {
-  try {
-    const logs = await getAuditLogs();
-    res.json(logs);
-  } catch (err) {
-    next(err);
-  }
-});
+router.put(
+  '/products/:id/active',
+  [param('id').isInt({ min: 1 }), body('active').isBoolean()],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const existing = productModel.getProductById(req.params.id);
+    if (!existing) return res.status(404).json({ message: 'Product not found' });
+
+    const product = productModel.setProductActive(req.params.id, req.body.active);
+
+    logAction(req, {
+      action: req.body.active ? 'product.activate' : 'product.deactivate',
+      targetType: 'product',
+      targetId: product.id,
+      details: { active: req.body.active },
+    });
+
+    res.json(product);
+  })
+);
+
+// ---- Price overrides ----
+
+router.get(
+  '/users/:id/price-overrides',
+  [param('id').isInt({ min: 1 })],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    res.json(priceOverrideModel.getOverridesForUser(req.params.id));
+  })
+);
+
+router.post(
+  '/price-overrides',
+  [body('userId').isInt({ min: 1 }), body('productId').isInt({ min: 1 }), body('overridePrice').isFloat({ min: 0 })],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    const { userId, productId, overridePrice } = req.body;
+
+    const user = userModel.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const product = productModel.getProductById(productId);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    const override = priceOverrideModel.upsertPriceOverride({ userId, productId, overridePrice });
+
+    logAction(req, {
+      action: 'price_override.set',
+      targetType: 'price_override',
+      targetId: override.id,
+      details: { userId, productId, overridePrice },
+    });
+
+    res.status(201).json(override);
+  })
+);
+
+router.delete(
+  '/price-overrides/:id',
+  [param('id').isInt({ min: 1 })],
+  validateRequest,
+  asyncHandler(async (req, res) => {
+    priceOverrideModel.deletePriceOverride(req.params.id);
+
+    logAction(req, { action: 'price_override.remove', targetType: 'price_override', targetId: Number(req.params.id) });
+
+    res.status(204).send();
+  })
+);
+
+// ---- Audit logs ----
+
+router.get(
+  '/audit-logs',
+  asyncHandler(async (req, res) => {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    res.json(auditLogModel.getAuditLogs({ page, limit }));
+  })
+);
 
 module.exports = router;
