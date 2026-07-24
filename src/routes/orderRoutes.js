@@ -29,36 +29,37 @@ router.post(
 
     const lines = [];
     for (const item of items) {
-      const product = productModel.getProductById(item.productId);
+      const product = await productModel.getProductById(item.productId);
       if (!product || !product.active) {
         return res.status(400).json({ message: `Product ${item.productId} is not available` });
       }
       if (item.quantity > product.quantity) {
         return res.status(400).json({ message: `Insufficient stock for "${product.name}"` });
       }
-      const price = getEffectivePrice(req.user, product);
+      const price = await getEffectivePrice(req.user, product);
       lines.push({ product, price, quantity: item.quantity });
     }
 
     const total = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
 
-    const placeOrder = transaction(() => {
-      const order = orderModel.createOrder({ buyerId: req.user.id, total });
+    const order = await transaction(async (tx) => {
+      const order = await orderModel.createOrder({ buyerId: req.user.id, total }, tx);
       for (const line of lines) {
-        orderModel.createOrderItem({
-          orderId: order.id,
-          productId: line.product.id,
-          price: line.price,
-          quantity: line.quantity,
-        });
-        productModel.decrementProductQuantity(line.product.id, line.quantity);
+        await orderModel.createOrderItem(
+          {
+            orderId: order.id,
+            productId: line.product.id,
+            price: line.price,
+            quantity: line.quantity,
+          },
+          tx
+        );
+        await productModel.decrementProductQuantity(line.product.id, line.quantity, tx);
       }
       return order;
     });
 
-    const order = placeOrder();
-
-    const buyer = userModel.findById(req.user.id);
+    const buyer = await userModel.findById(req.user.id);
     const io = req.app.get('io');
     emitNewOrder(io, {
       orderId: order.id,
@@ -79,7 +80,7 @@ router.get(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    res.json(orderModel.getOrdersByBuyer(req.user.id));
+    res.json(await orderModel.getOrdersByBuyer(req.user.id));
   })
 );
 
@@ -88,7 +89,7 @@ router.get(
   requireAuth,
   requireAdmin,
   asyncHandler(async (req, res) => {
-    res.json(orderModel.getAllOrders());
+    res.json(await orderModel.getAllOrders());
   })
 );
 
@@ -98,12 +99,12 @@ router.get(
   [param('orderId').isInt({ min: 1 })],
   validateRequest,
   asyncHandler(async (req, res) => {
-    const order = orderModel.getOrderById(req.params.orderId);
+    const order = await orderModel.getOrderById(req.params.orderId);
     if (!order) return res.status(404).json({ message: 'Order not found' });
     if (order.buyer_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized to view this order' });
     }
-    res.json(orderModel.getOrderItems(order.id));
+    res.json(await orderModel.getOrderItems(order.id));
   })
 );
 
@@ -117,12 +118,12 @@ router.patch(
   ],
   validateRequest,
   asyncHandler(async (req, res) => {
-    const order = orderModel.getOrderById(req.params.orderId);
+    const order = await orderModel.getOrderById(req.params.orderId);
     if (!order) return res.status(404).json({ message: 'Order not found' });
 
-    const updated = orderModel.updateOrderStatus(order.id, req.body.status);
+    const updated = await orderModel.updateOrderStatus(order.id, req.body.status);
 
-    auditLogModel.createAuditLog({
+    await auditLogModel.createAuditLog({
       actorId: req.user.id,
       actorEmail: req.user.email,
       action: 'order.status_update',

@@ -27,14 +27,14 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, email, password } = req.body;
 
-    const existing = userModel.findByEmail(email);
+    const existing = await userModel.findByEmail(email);
     if (existing) {
       return res.status(409).json({ message: 'An account with this email already exists' });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
     // role is always forced to 'buyer' here; only /admin/users can create admin accounts
-    const user = userModel.createUser({ name, email, passwordHash, role: 'buyer' });
+    const user = await userModel.createUser({ name, email, passwordHash, role: 'buyer' });
     const token = issueToken(user);
 
     res.status(201).json({ token, user: serializeUser(user) });
@@ -51,7 +51,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
 
-    const user = userModel.findByEmail(email);
+    const user = await userModel.findByEmail(email);
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }

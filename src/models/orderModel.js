@@ -1,12 +1,12 @@
-const { get, all, run } = require('../db');
+const defaultDb = require('../db');
 
-function createOrder({ buyerId, total, status = 'pending' }) {
-  const result = run('INSERT INTO orders (buyer_id, total, status) VALUES (?, ?, ?)', [buyerId, total, status]);
-  return getOrderById(result.lastInsertRowid);
+async function createOrder({ buyerId, total, status = 'pending' }, db = defaultDb) {
+  const result = await db.run('INSERT INTO orders (buyer_id, total, status) VALUES (?, ?, ?)', [buyerId, total, status]);
+  return getOrderById(result.lastInsertRowid, db);
 }
 
-function createOrderItem({ orderId, productId, price, quantity }) {
-  run('INSERT INTO order_items (order_id, product_id, price, quantity) VALUES (?, ?, ?, ?)', [
+async function createOrderItem({ orderId, productId, price, quantity }, db = defaultDb) {
+  await db.run('INSERT INTO order_items (order_id, product_id, price, quantity) VALUES (?, ?, ?, ?)', [
     orderId,
     productId,
     price,
@@ -14,19 +14,19 @@ function createOrderItem({ orderId, productId, price, quantity }) {
   ]);
 }
 
-function getOrderById(id) {
-  return get('SELECT id, buyer_id, total, status, created_at FROM orders WHERE id = ?', [id]);
+async function getOrderById(id, db = defaultDb) {
+  return db.get('SELECT id, buyer_id, total, status, created_at FROM orders WHERE id = ?', [id]);
 }
 
-function getOrdersByBuyer(buyerId) {
-  return all(
+async function getOrdersByBuyer(buyerId) {
+  return defaultDb.all(
     'SELECT id, buyer_id, total, status, created_at FROM orders WHERE buyer_id = ? ORDER BY created_at DESC',
     [buyerId]
   );
 }
 
-function getAllOrders() {
-  return all(`
+async function getAllOrders() {
+  return defaultDb.all(`
     SELECT o.id, o.buyer_id, o.total, o.status, o.created_at, u.name AS buyer_name, u.email AS buyer_email
     FROM orders o
     JOIN users u ON u.id = o.buyer_id
@@ -34,8 +34,8 @@ function getAllOrders() {
   `);
 }
 
-function getOrderItems(orderId) {
-  return all(
+async function getOrderItems(orderId) {
+  return defaultDb.all(
     `SELECT oi.id, oi.product_id, p.name, p.image_url, oi.price, oi.quantity
      FROM order_items oi
      JOIN products p ON p.id = oi.product_id
@@ -44,8 +44,8 @@ function getOrderItems(orderId) {
   );
 }
 
-function updateOrderStatus(id, status) {
-  run('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
+async function updateOrderStatus(id, status) {
+  await defaultDb.run('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
   return getOrderById(id);
 }
 

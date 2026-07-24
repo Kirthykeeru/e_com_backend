@@ -3,9 +3,9 @@ const { get } = require('../db');
 
 const router = express.Router();
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    get('SELECT 1 AS ok');
+    await get('SELECT 1 AS ok');
     res.json({ status: 'ok', db: 'ok' });
   } catch (err) {
     res.status(500).json({ status: 'error', db: 'error' });

@@ -1,16 +1,19 @@
 const fs = require('fs');
 const path = require('path');
-const { db } = require('./index');
+const { execRaw } = require('./index');
 
-function migrate() {
+async function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
-  db.exec(schema);
-}
-
-migrate();
-
-if (require.main === module) {
-  console.log('Migration complete.');
+  await execRaw(schema);
 }
 
 module.exports = migrate;
+
+if (require.main === module) {
+  migrate()
+    .then(() => console.log('Migration complete.'))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}

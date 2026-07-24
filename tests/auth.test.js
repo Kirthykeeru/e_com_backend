@@ -1,7 +1,11 @@
 require('./testSetup');
 const request = require('supertest');
-require('../src/db/migrate');
+const migrate = require('../src/db/migrate');
 const app = require('../src/app');
+
+beforeAll(async () => {
+  await migrate();
+});
 
 describe('auth', () => {
   test('register succeeds and never leaks password_hash', async () => {

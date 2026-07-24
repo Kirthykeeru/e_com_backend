@@ -11,8 +11,10 @@ router.get(
   '/',
   authenticateOptional,
   asyncHandler(async (req, res) => {
-    const products = productModel.getProducts({ activeOnly: true });
-    const priced = products.map((product) => ({ ...product, price: getEffectivePrice(req.user, product) }));
+    const products = await productModel.getProducts({ activeOnly: true });
+    const priced = await Promise.all(
+      products.map(async (product) => ({ ...product, price: await getEffectivePrice(req.user, product) }))
+    );
     res.json(priced);
   })
 );

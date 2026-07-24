@@ -4,7 +4,7 @@ const userModel = require('../src/models/userModel');
 
 async function createAdminAndLogin(app, { email = 'admin@test.com', password = 'AdminPass123' } = {}) {
   const passwordHash = await bcrypt.hash(password, 10);
-  userModel.createUser({ name: 'Admin', email, passwordHash, role: 'admin' });
+  await userModel.createUser({ name: 'Admin', email, passwordHash, role: 'admin' });
   const res = await request(app).post('/api/auth/login').send({ email, password });
   return { token: res.body.token, user: res.body.user };
 }

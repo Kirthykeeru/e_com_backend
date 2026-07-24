@@ -20,7 +20,7 @@ async function sendNewOrderEmail({ orderId, buyerName, buyerEmail, total }) {
       from: process.env.SMTP_FROM || 'no-reply@electric-shop.example',
       to: process.env.ADMIN_NOTIFY_EMAIL,
       subject: `New order #${orderId}`,
-      text: `New order #${orderId} placed by ${buyerName} (${buyerEmail}) for a total of $${total}.`,
+      text: `New order #${orderId} placed by ${buyerName} (${buyerEmail}) for a total of ₹${Number(total).toFixed(2)}.`,
     });
   } catch (err) {
     console.error(`[mailer] Failed to send new-order email for order #${orderId}:`, err.message);

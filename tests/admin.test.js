@@ -1,8 +1,12 @@
 require('./testSetup');
 const request = require('supertest');
-require('../src/db/migrate');
+const migrate = require('../src/db/migrate');
 const app = require('../src/app');
 const { createAdminAndLogin, registerBuyerAndLogin } = require('./helpers');
+
+beforeAll(async () => {
+  await migrate();
+});
 
 describe('admin', () => {
   test('admin can create a product, set a price override, and both are audit logged', async () => {
