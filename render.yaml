@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: electric-shop-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run migrate && npm run seed && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_ORIGIN
+        value: https://electric-shop-web.onrender.com
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        value: admin@electric.com
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: ADMIN_NOTIFY_EMAIL
+        sync: false
